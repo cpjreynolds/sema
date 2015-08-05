@@ -55,15 +55,52 @@ mod os {
     }
 }
 
+/// A counting, blocking, semaphore.
+///
+/// Semaphores are a form of atomic counter where access is only granted if the
+/// counter is a positive value. Each acquisition will block the calling thread
+/// until the counter is positive, and each release will increment the counter
+/// and unblock any threads if necessary.
+///
+/// # Examples
+///
+/// ```
+/// use sema::Semaphore;
+///
+/// // Create a semaphore that represents 5 resources
+/// let sem = Semaphore::new(5);
+///
+/// // Acquire one of the resources
+/// sem.acquire();
+///
+/// // Acquire one of the resources for a limited period of time
+/// {
+///     let _guard = sem.access();
+///     // ...
+/// } // resources is released here
+///
+/// // Release our initially acquired resource
+/// sem.release();
+/// ```
 pub struct Semaphore {
     inner: UnsafeCell<sem_t>,
 }
 
+/// An RAII guard which will release a resource acquired from a semaphore when
+/// dropped.
 pub struct SemaphoreGuard<'a> {
     sem: &'a Semaphore,
 }
 
 impl Semaphore {
+    /// Creates a new semaphore with the initial count specified.
+    ///
+    /// The count specified can be thought of as a number of resources, and a
+    /// call to `acquire` or `access` will block until at least one resource is
+    /// available.
+    ///
+    /// **Note:** Unlike the standard library, this semaphore may not be initialized with a
+    /// negative count.
     pub fn new(value: u32) -> Semaphore {
         let mut sem: sem_t = unsafe {
             mem::uninitialized()
@@ -78,6 +115,11 @@ impl Semaphore {
         }
     }
 
+    /// Acquires a resource of this semaphore, blocking the current thread until
+    /// it can do so.
+    ///
+    /// This method will block until the internal count of the semaphore is at
+    /// least 1.
     pub fn acquire(&self) {
         loop {
             let res = unsafe {
@@ -94,6 +136,13 @@ impl Semaphore {
         }
     }
 
+    /// Release a resource from this semaphore.
+    ///
+    /// This will increment the number of resources in this semaphore by 1 and
+    /// will notify any pending waiters in `acquire` or `access` if necessary.
+    /// 
+    /// **Note:** This function is defined by POSIX.1-2001 to be async-signal-safe, and may be
+    /// safely called within a signal handler.
     pub fn release(&self) {
         let res = unsafe {
             sem_post(self.inner.get())
@@ -101,6 +150,11 @@ impl Semaphore {
         debug_assert_eq!(res, 0);
     }
 
+    /// Acquires a resource of this semaphore, returning an RAII guard to
+    /// release the semaphore when dropped.
+    ///
+    /// This function is semantically equivalent to an `acquire` followed by a
+    /// `release` when the guard returned is dropped.
     pub fn access(&self) -> SemaphoreGuard {
         self.acquire();
         SemaphoreGuard { sem: self }
@@ -126,7 +180,7 @@ impl<'a> Drop for SemaphoreGuard<'a> {
 }
 
 // These tests are taken from the Rust standard library semaphore implementation. Since we
-// implement the same interface it makes sense use the same tests as well.
+// implement the same interface, (and use the same docs), it makes sense use the same tests as well.
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
