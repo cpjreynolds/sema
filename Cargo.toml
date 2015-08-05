@@ -1,6 +1,6 @@
 [package]
 name = "sema"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Cole Reynolds <cpjreynolds@gmail.com>"]
 description = "Rust semaphore library"
 documentation = "https://cpjreynolds.github.io/sema"
@@ -11,4 +11,4 @@ license = "MIT"
 keywords = ["sema", "semaphore", "sync", "thread"]
 
 [dependencies]
-libc = "*"
+libc = "0.1.8"
