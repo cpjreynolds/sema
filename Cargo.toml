@@ -2,7 +2,7 @@
 name = "sema"
 version = "0.1.0"
 authors = ["Cole Reynolds <cpjreynolds@gmail.com>"]
-description = "Rust semaphores"
+description = "Rust semaphore library"
 documentation = "https://cpjreynolds.github.io/sema"
 repository = "https://github.com/cpjreynolds/sema"
 homepage = "https://github.com/cpjreynolds/sema"
