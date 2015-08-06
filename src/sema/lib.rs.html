@@ -172,7 +172,7 @@
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>test_sem_basic</span>() {
         <span class='kw'>let</span> <span class='ident'>s</span> <span class='op'>=</span> <span class='ident'>Semaphore</span>::<span class='ident'>new</span>(<span class='number'>1</span>);
-        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>access</span>();
+        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>take</span>();
     }
 
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
@@ -180,9 +180,9 @@
         <span class='kw'>let</span> <span class='ident'>s</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>Semaphore</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
         <span class='kw'>let</span> <span class='ident'>s2</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>clone</span>();
         <span class='kw'>let</span> <span class='ident'>_t</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s2</span>.<span class='ident'>access</span>();
+            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s2</span>.<span class='ident'>take</span>();
         });
-        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>access</span>();
+        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>take</span>();
     }
 
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
@@ -219,11 +219,11 @@
         <span class='kw'>let</span> (<span class='ident'>tx1</span>, <span class='ident'>rx1</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
         <span class='kw'>let</span> (<span class='ident'>tx2</span>, <span class='ident'>rx2</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
         <span class='kw'>let</span> <span class='ident'>_t</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s2</span>.<span class='ident'>access</span>();
+            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s2</span>.<span class='ident'>take</span>();
             <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>rx2</span>.<span class='ident'>recv</span>();
             <span class='ident'>tx1</span>.<span class='ident'>send</span>(()).<span class='ident'>unwrap</span>();
         });
-        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>access</span>();
+        <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>take</span>();
         <span class='ident'>tx2</span>.<span class='ident'>send</span>(()).<span class='ident'>unwrap</span>();
         <span class='ident'>rx1</span>.<span class='ident'>recv</span>().<span class='ident'>unwrap</span>();
     }
@@ -234,10 +234,10 @@
         <span class='kw'>let</span> <span class='ident'>s2</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>clone</span>();
         <span class='kw'>let</span> (<span class='ident'>tx</span>, <span class='ident'>rx</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
         {
-            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>access</span>();
+            <span class='kw'>let</span> <span class='ident'>_g</span> <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>take</span>();
             <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
                 <span class='ident'>tx</span>.<span class='ident'>send</span>(()).<span class='ident'>unwrap</span>();
-                <span class='ident'>drop</span>(<span class='ident'>s2</span>.<span class='ident'>access</span>());
+                <span class='ident'>drop</span>(<span class='ident'>s2</span>.<span class='ident'>take</span>());
                 <span class='ident'>tx</span>.<span class='ident'>send</span>(()).<span class='ident'>unwrap</span>();
             });
             <span class='ident'>rx</span>.<span class='ident'>recv</span>().<span class='ident'>unwrap</span>(); <span class='comment'>// wait for child to come alive</span>

@@ -337,7 +337,7 @@
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
         }
 
-        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>access</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
+        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
             <span class='self'>self</span>.<span class='ident'>wait</span>();
             <span class='ident'>SemaphoreGuard</span> { <span class='ident'>sem</span>: <span class='self'>self</span> }
         }
@@ -381,7 +381,6 @@
         <span class='ident'>S_IRWXU</span>,
     };
 
-    <span class='kw'>const</span> <span class='ident'>SIZEOF_SEM_T</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>4</span>;
     <span class='kw'>const</span> <span class='ident'>SEM_NAME_MAX</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>28</span>; <span class='comment'>// No definitive value for this on OS X. Erring on the side of caution.</span>
     <span class='kw'>const</span> <span class='ident'>SEM_FAILED</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span> <span class='op'>=</span> <span class='number'>0</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>;
 
@@ -431,6 +430,7 @@
                 };
                 <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
                     <span class='kw'>match</span> <span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>() {
+                        <span class='comment'>// Restart on interruption. All other errors are panics.</span>
                         <span class='kw-2'>ref</span> <span class='ident'>e</span> <span class='kw'>if</span> <span class='ident'>e</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>io</span>::<span class='ident'>ErrorKind</span>::<span class='ident'>Interrupted</span> <span class='op'>=&gt;</span> <span class='kw'>continue</span>,
                         <span class='ident'>other</span> <span class='op'>=&gt;</span> <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;{}&quot;</span>, <span class='ident'>other</span>),
                     }
@@ -447,7 +447,7 @@
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
         }
 
-        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>access</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
+        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
             <span class='self'>self</span>.<span class='ident'>wait</span>();
             <span class='ident'>SemaphoreGuard</span> { <span class='ident'>sem</span>: <span class='self'>self</span> }
         }
