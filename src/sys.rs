@@ -77,7 +77,7 @@ mod os {
             debug_assert_eq!(res, 0);
         }
 
-        pub fn access(&self) -> SemaphoreGuard {
+        pub fn take(&self) -> SemaphoreGuard {
             self.wait();
             SemaphoreGuard { sem: self }
         }
@@ -121,7 +121,6 @@ mod os {
         S_IRWXU,
     };
 
-    const SIZEOF_SEM_T: usize = 4;
     const SEM_NAME_MAX: usize = 28; // No definitive value for this on OS X. Erring on the side of caution.
     const SEM_FAILED: *mut sem_t = 0 as *mut sem_t;
 
@@ -171,6 +170,7 @@ mod os {
                 };
                 if res == -1 {
                     match io::Error::last_os_error() {
+                        // Restart on interruption. All other errors are panics.
                         ref e if e.kind() == io::ErrorKind::Interrupted => continue,
                         other => panic!("{}", other),
                     }
@@ -187,7 +187,7 @@ mod os {
             debug_assert_eq!(res, 0);
         }
 
-        pub fn access(&self) -> SemaphoreGuard {
+        pub fn take(&self) -> SemaphoreGuard {
             self.wait();
             SemaphoreGuard { sem: self }
         }
