@@ -252,6 +252,11 @@
 <span id="210">210</span>
 <span id="211">211</span>
 <span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
 </pre><pre class='rust '>
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>os</span>::{
     <span class='ident'>Semaphore</span>,
@@ -360,6 +365,8 @@
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>)]</span>
 <span class='kw'>mod</span> <span class='ident'>os</span> {
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ffi</span>::<span class='ident'>CString</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
     <span class='kw'>use</span> <span class='ident'>rand</span>::{
         <span class='ident'>thread_rng</span>,
         <span class='ident'>Rng</span>,
@@ -420,7 +427,7 @@
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
             <span class='kw'>loop</span> {
                 <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                    <span class='ident'>sem_wait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
+                    <span class='ident'>sem_wait</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
                 };
                 <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
                     <span class='kw'>match</span> <span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>() {
@@ -435,7 +442,7 @@
 
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>post</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>sem_post</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
+                <span class='ident'>sem_post</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
         }
@@ -446,10 +453,13 @@
         }
     }
 
+    <span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>Semaphore</span> {}
+    <span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>Semaphore</span> {}
+
     <span class='kw'>impl</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>Semaphore</span> {
         <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>sem_close</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
+                <span class='ident'>sem_close</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
