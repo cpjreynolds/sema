@@ -11,4 +11,9 @@ license = "MIT"
 keywords = ["sema", "semaphore", "sync", "thread"]
 
 [dependencies]
-libc = "0.1.8"
+libc = "0.1"
+rand = "0.3"
+
+[dev-dependencies]
+nix = "*"
+lazy_static = "*"
