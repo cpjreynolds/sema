@@ -105,6 +105,8 @@ mod os {
 #[cfg(target_os = "macos")]
 mod os {
     use std::ffi::CString;
+    use std::cell::UnsafeCell;
+    use std::io;
     use rand::{
         thread_rng,
         Rng,
@@ -165,7 +167,7 @@ mod os {
         pub fn wait(&self) {
             loop {
                 let res = unsafe {
-                    sem_wait(self.inner.get())
+                    sem_wait(*self.inner.get())
                 };
                 if res == -1 {
                     match io::Error::last_os_error() {
@@ -180,7 +182,7 @@ mod os {
 
         pub fn post(&self) {
             let res = unsafe {
-                sem_post(self.inner.get())
+                sem_post(*self.inner.get())
             };
             debug_assert_eq!(res, 0);
         }
@@ -191,10 +193,13 @@ mod os {
         }
     }
 
+    unsafe impl Send for Semaphore {}
+    unsafe impl Sync for Semaphore {}
+
     impl Drop for Semaphore {
         fn drop(&mut self) {
             let res = unsafe {
-                sem_close(self.inner.get())
+                sem_close(*self.inner.get())
             };
             debug_assert_eq!(res, 0);
             let res = unsafe {
