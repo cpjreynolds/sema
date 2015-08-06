@@ -1,15 +1,11 @@
-# sema
+sema
+====
 
-Sema is an implementation of the Rust standard library `Semaphore` with POSIX
-semaphores.
-
-One major benefit of this implementation is that `Semaphore::release()` is
-async-safe and may be called from within a signal handler, as defined in
-POSIX.1-2001.
+A simple semaphore.
 
 [![Build Status](https://travis-ci.org/cpjreynolds/sema.svg?branch=master)](https://travis-ci.org/cpjreynolds/sema) [![Crates.io](https://img.shields.io/crates/v/sema.svg)](https://crates.io/crates/sema) [![Crates.io](https://img.shields.io/crates/l/sema.svg)](https://crates.io/crates/sema)
 
-[Documentation](https://cpjreynolds.github.io/sema)
+[Documentation][1]
 
 ## Usage
 
@@ -27,3 +23,8 @@ and this to your crate root:
 extern crate sema;
 ```
 
+## Overview
+
+Sema provides a safe `Semaphore` abstraction built on the POSIX `sem_t` type.
+
+[1]: https://cpjreynolds.github.io/sema
