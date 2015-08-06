@@ -142,6 +142,10 @@ mod os {
         name: CString,
     }
 
+    pub struct SemaphoreGuard<'a> {
+        sem: &'a Semaphore,
+    }
+
     impl Semaphore {
         pub fn new(value: u32) -> Semaphore {
             let name: String = thread_rng().gen_ascii_chars().take(SEM_NAME_MAX).collect();
