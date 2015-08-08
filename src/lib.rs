@@ -1,14 +1,15 @@
 extern crate libc;
+extern crate time;
+#[cfg(target_os = "macos")]
 extern crate rand;
 
 mod sys;
+mod errno;
 pub use sys::{
     Semaphore,
     SemaphoreGuard,
 };
 
-// These tests are taken from the Rust standard library semaphore implementation. Since we
-// implement roughtly the same interface, it makes sense use the same tests as well.
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
