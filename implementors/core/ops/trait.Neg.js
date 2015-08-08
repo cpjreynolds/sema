@@ -1,5 +1,5 @@
 (function() {var implementors = {};
-implementors['sema'] = ["impl&lt;'a&gt; <a class='trait' href='http://doc.rust-lang.org/nightly/core/ops/trait.Drop.html' title='core::ops::Drop'>Drop</a> for SemaphoreGuard&lt;'a&gt;",];
+implementors['time'] = ["impl <a class='trait' href='http://doc.rust-lang.org/nightly/core/ops/trait.Neg.html' title='core::ops::Neg'>Neg</a> for <a class='struct' href='time/struct.Duration.html' title='time::Duration'>Duration</a>",];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);
