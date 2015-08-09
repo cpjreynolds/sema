@@ -563,44 +563,28 @@
 <span id="521">521</span>
 <span id="522">522</span>
 <span id="523">523</span>
-<span id="524">524</span>
-<span id="525">525</span>
-<span id="526">526</span>
-<span id="527">527</span>
-<span id="528">528</span>
-<span id="529">529</span>
-<span id="530">530</span>
-<span id="531">531</span>
-<span id="532">532</span>
-<span id="533">533</span>
-<span id="534">534</span>
-<span id="535">535</span>
-<span id="536">536</span>
-<span id="537">537</span>
-<span id="538">538</span>
-<span id="539">539</span>
-<span id="540">540</span>
-<span id="541">541</span>
-<span id="542">542</span>
-<span id="543">543</span>
-<span id="544">544</span>
-<span id="545">545</span>
-<span id="546">546</span>
-<span id="547">547</span>
-<span id="548">548</span>
-<span id="549">549</span>
-<span id="550">550</span>
-<span id="551">551</span>
-<span id="552">552</span>
-<span id="553">553</span>
-<span id="554">554</span>
 </pre><pre class='rust '>
+<span class='kw'>use</span> <span class='ident'>libc</span>;
+<span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Duration</span>;
+
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>os</span>::{
     <span class='ident'>Semaphore</span>,
     <span class='ident'>SemaphoreGuard</span>,
 };
 
-<span class='comment'>// Linux-specific futex semaphores.</span>
+<span class='comment'>// Converts a `Duration` to a `timespec`.</span>
+<span class='kw'>fn</span> <span class='ident'>to_timespec</span>(<span class='ident'>dur</span>: <span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
+    <span class='kw'>let</span> <span class='ident'>sec</span> <span class='op'>=</span> <span class='ident'>dur</span>.<span class='ident'>num_seconds</span>();
+    <span class='comment'>// Safe to unwrap since there can&#39;t be more than one second left.</span>
+    <span class='kw'>let</span> <span class='ident'>nsec</span> <span class='op'>=</span> (<span class='ident'>dur</span> <span class='op'>-</span> <span class='ident'>Duration</span>::<span class='ident'>seconds</span>(<span class='ident'>sec</span>)).<span class='ident'>num_nanoseconds</span>().<span class='ident'>unwrap</span>();
+    <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
+        <span class='ident'>tv_sec</span>: <span class='ident'>sec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>time_t</span>,
+        <span class='ident'>tv_nsec</span>: <span class='ident'>nsec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>c_long</span>,
+    }
+}
+
+<span class='comment'>// Linux-specific semaphore, implemented with futexes.</span>
+<span class='comment'>// Heavily based on glibc `sem_t` implementation.</span>
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>)]</span>
 <span class='kw'>mod</span> <span class='ident'>os</span> {
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
@@ -609,17 +593,23 @@
         <span class='ident'>Ordering</span>,
         <span class='ident'>AtomicUsize</span>,
     };
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>::{
+        <span class='ident'>Error</span>,
+        <span class='ident'>ErrorKind</span>
+    };
 
     <span class='kw'>use</span> <span class='ident'>libc</span>;
     <span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Duration</span>;
 
-    <span class='kw'>use</span> <span class='ident'>errno</span>::<span class='ident'>errno</span>;
+    <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>to_timespec</span>;
 
+    <span class='comment'>// The number of waiters is stored in the upper half most significant bits.</span>
     <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;64&quot;</span>)]</span>
     <span class='kw'>const</span> <span class='ident'>NWAITERS_SHIFT</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>32</span>;
     <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;32&quot;</span>)]</span>
     <span class='kw'>const</span> <span class='ident'>NWAITERS_SHIFT</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>16</span>;
 
+    <span class='comment'>// Masks out nwaiters to obtain the Semaphore&#39;s count.</span>
     <span class='kw'>const</span> <span class='ident'>VALUE_MASK</span>: <span class='ident'>usize</span> <span class='op'>=</span> (<span class='op'>!</span><span class='number'>0</span>) <span class='op'>&gt;&gt;</span> <span class='ident'>NWAITERS_SHIFT</span>;
 
     <span class='comment'>// Value to add to semaphoroe to add one waiter.</span>
@@ -628,36 +618,44 @@
     <span class='kw'>const</span> <span class='ident'>NEG_ONE_WAITER</span>: <span class='ident'>usize</span> <span class='op'>=</span> (<span class='op'>!</span><span class='number'>0</span> <span class='op'>&lt;&lt;</span> <span class='ident'>NWAITERS_SHIFT</span>);
 
 
+    <span class='comment'>// Futex syscall number.</span>
     <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;x86_64&quot;</span>)]</span>
     <span class='kw'>const</span> <span class='ident'>SYS_FUTEX</span>: <span class='ident'>libc</span>::<span class='ident'>c_long</span> <span class='op'>=</span> <span class='number'>202</span>;
     <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;x86&quot;</span>)]</span>
     <span class='kw'>const</span> <span class='ident'>SYS_FUTEX</span>: <span class='ident'>libc</span>::<span class='ident'>c_long</span> <span class='op'>=</span> <span class='number'>240</span>;
 
+    <span class='comment'>// Syscall op numbers.</span>
     <span class='kw'>const</span> <span class='ident'>FUTEX_WAIT</span>: <span class='ident'>i32</span> <span class='op'>=</span> <span class='number'>0</span>;
     <span class='kw'>const</span> <span class='ident'>FUTEX_WAKE</span>: <span class='ident'>i32</span> <span class='op'>=</span> <span class='number'>1</span>;
 
 
     <span class='kw'>extern</span> {
+        <span class='comment'>// Glibc doesn&#39;t provide a futex wrapper function.</span>
+        <span class='comment'>// We use this to wrap the futex syscall.</span>
         <span class='kw'>fn</span> <span class='ident'>syscall</span>(<span class='ident'>number</span>: <span class='ident'>libc</span>::<span class='ident'>c_long</span>, ...) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>c_long</span>;
     }
 
-    <span class='kw'>fn</span> <span class='ident'>futex_wake</span>(<span class='ident'>uaddr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u32</span>, <span class='ident'>val</span>: <span class='ident'>u32</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>i32</span>, <span class='ident'>i32</span><span class='op'>&gt;</span> {
+    <span class='comment'>// Wake at most `val` threads currently waiting on the futex.</span>
+    <span class='kw'>fn</span> <span class='ident'>futex_wake</span>(<span class='ident'>uaddr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u32</span>, <span class='ident'>val</span>: <span class='ident'>u32</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>i32</span>, <span class='ident'>Error</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
             <span class='ident'>syscall</span>(<span class='ident'>SYS_FUTEX</span>, <span class='ident'>uaddr</span>, <span class='ident'>FUTEX_WAKE</span>, <span class='ident'>val</span>)
         };
         <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-            <span class='prelude-val'>Err</span>(<span class='ident'>errno</span>())
+            <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
         } <span class='kw'>else</span> {
             <span class='prelude-val'>Ok</span>(<span class='ident'>res</span> <span class='kw'>as</span> <span class='ident'>i32</span>)
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>futex_wait</span>(<span class='ident'>uaddr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u32</span>, <span class='ident'>val</span>: <span class='ident'>u32</span>, <span class='ident'>timeout</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>i32</span>, <span class='ident'>i32</span><span class='op'>&gt;</span> {
+    <span class='comment'>// Puts the current thread to sleep on the futex.</span>
+    <span class='comment'>// If the timeout is non-NULL, the thread wake after the timeout specified with</span>
+    <span class='comment'>// `ErrorKind::TimedOut`.</span>
+    <span class='kw'>fn</span> <span class='ident'>futex_wait</span>(<span class='ident'>uaddr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u32</span>, <span class='ident'>val</span>: <span class='ident'>u32</span>, <span class='ident'>timeout</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>i32</span>, <span class='ident'>Error</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
             <span class='ident'>syscall</span>(<span class='ident'>SYS_FUTEX</span>, <span class='ident'>uaddr</span>, <span class='ident'>FUTEX_WAIT</span>, <span class='ident'>val</span>, <span class='ident'>timeout</span>)
         };
         <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-            <span class='prelude-val'>Err</span>(<span class='ident'>errno</span>())
+            <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
         } <span class='kw'>else</span> {
             <span class='prelude-val'>Ok</span>(<span class='ident'>res</span> <span class='kw'>as</span> <span class='ident'>i32</span>)
         }
@@ -675,17 +673,6 @@
     <span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>AsPointer</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>AtomicUsize</span> {
         <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>as_ptr</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>usize</span> {
             <span class='ident'>mem</span>::<span class='ident'>transmute</span>(<span class='self'>self</span>)
-        }
-    }
-
-    <span class='comment'>// Converts a `Duration` to a `timespec`.</span>
-    <span class='kw'>fn</span> <span class='ident'>to_timespec</span>(<span class='ident'>dur</span>: <span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-        <span class='kw'>let</span> <span class='ident'>sec</span> <span class='op'>=</span> <span class='ident'>dur</span>.<span class='ident'>num_seconds</span>();
-        <span class='comment'>// Safe to unwrap since there can&#39;t be more than one second left.</span>
-        <span class='kw'>let</span> <span class='ident'>nsec</span> <span class='op'>=</span> (<span class='ident'>dur</span> <span class='op'>-</span> <span class='ident'>Duration</span>::<span class='ident'>seconds</span>(<span class='ident'>sec</span>)).<span class='ident'>num_nanoseconds</span>().<span class='ident'>unwrap</span>();
-        <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-            <span class='ident'>tv_sec</span>: <span class='ident'>sec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>time_t</span>,
-            <span class='ident'>tv_nsec</span>: <span class='ident'>nsec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>c_long</span>,
         }
     }
 
@@ -739,6 +726,8 @@
             })
         }
 
+        <span class='comment'>// Returns a pointer to the value of the atomic counter.</span>
+        <span class='comment'>// This is used to abstract over platform pointer width and endianness differences.</span>
         <span class='kw'>fn</span> <span class='ident'>value_ptr</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u32</span> {
             <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>any</span>(<span class='ident'>target_endian</span> <span class='op'>=</span> <span class='string'>&quot;little&quot;</span>,
                       <span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;32&quot;</span>))]</span>
@@ -752,13 +741,14 @@
             }
         }
 
+        <span class='comment'>// Will grab a token if one is available. Otherwise, returns `ErrorKind::WouldBlock`.</span>
         <span class='kw'>fn</span> <span class='ident'>wait_fast</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>definitive_result</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Error</span><span class='op'>&gt;</span> {
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>d</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>data</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
             <span class='kw'>loop</span> {
                 <span class='comment'>// Check if there is a token available.</span>
                 <span class='kw'>if</span> (<span class='ident'>d</span> <span class='kw-2'>&amp;</span> <span class='ident'>VALUE_MASK</span>) <span class='op'>==</span> <span class='number'>0</span> {
                     <span class='comment'>// No token available. Need to call `wait_slow()` and block.</span>
-                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>WouldBlock</span>);
+                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>new</span>(<span class='ident'>ErrorKind</span>::<span class='ident'>WouldBlock</span>, <span class='string'>&quot;wait would block&quot;</span>));
                 }
                 <span class='comment'>// Grab the token and establish synchronizes-with between threads.</span>
                 <span class='kw'>let</span> <span class='ident'>prev</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>data</span>.<span class='ident'>compare_and_swap</span>(<span class='ident'>d</span>, <span class='ident'>d</span> <span class='op'>-</span> <span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>Acquire</span>);
@@ -772,7 +762,7 @@
                 <span class='kw'>if</span> <span class='ident'>definitive_result</span> {
                     <span class='kw'>continue</span>;
                 } <span class='kw'>else</span> {
-                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>WouldBlock</span>);
+                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>new</span>(<span class='ident'>ErrorKind</span>::<span class='ident'>WouldBlock</span>, <span class='string'>&quot;wait would block&quot;</span>));
                 }
             }
         }
@@ -789,14 +779,9 @@
                     <span class='comment'>// If `futex_wait` timed out, or was interrupted by a signal, return this error to</span>
                     <span class='comment'>// the caller. Otherwise we retry.</span>
                     <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=</span> <span class='ident'>res</span> {
-                        <span class='kw'>if</span> <span class='ident'>e</span> <span class='op'>==</span> <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>||</span> <span class='ident'>e</span> <span class='op'>==</span> <span class='ident'>libc</span>::<span class='ident'>ETIMEDOUT</span> {
-                            <span class='comment'>// Deregister ourselves as a waiter.</span>
+                        <span class='kw'>if</span> <span class='ident'>e</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>ErrorKind</span>::<span class='ident'>Interrupted</span> <span class='op'>||</span> <span class='ident'>e</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>ErrorKind</span>::<span class='ident'>TimedOut</span> {
                             <span class='self'>self</span>.<span class='ident'>data</span>.<span class='ident'>fetch_add</span>(<span class='ident'>NEG_ONE_WAITER</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
-                            <span class='kw'>if</span> <span class='ident'>e</span> <span class='op'>==</span> <span class='ident'>libc</span>::<span class='ident'>EINTR</span> {
-                                <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>);
-                            } <span class='kw'>else</span> {
-                                <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>TimedOut</span>);
-                            }
+                            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>);
                         }
                     }
 
@@ -817,30 +802,27 @@
         }
     }
 
+    <span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>Semaphore</span> {}
+    <span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>Semaphore</span> {}
+
     <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>SemaphoreGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
             <span class='self'>self</span>.<span class='ident'>sem</span>.<span class='ident'>post</span>();
         }
     }
-
-    <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>, <span class='ident'>Clone</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Error</span> {
-        <span class='ident'>Interrupted</span>,
-        <span class='ident'>TimedOut</span>,
-        <span class='ident'>WouldBlock</span>,
-        <span class='ident'>Unknown</span>,
-    }
 }
 
-
-
 <span class='comment'>// POSIX semaphores.</span>
+<span class='comment'>//</span>
+<span class='comment'>// This is the basic, non-shared semaphore that is present on most unix-likes. OS X is excluded as</span>
+<span class='comment'>// it does not implement process local semaphores, and Linux is omitted because we have our own</span>
+<span class='comment'>// implementation instead.</span>
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>,
               <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>)))]</span>
 <span class='kw'>mod</span> <span class='ident'>os</span> {
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>::<span class='ident'>Error</span>;
 
     <span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Duration</span>;
     <span class='kw'>use</span> <span class='ident'>libc</span>::{
@@ -849,7 +831,7 @@
         <span class='ident'>c_uint</span>,
     };
 
-    <span class='kw'>use</span> <span class='ident'>errno</span>::<span class='ident'>errno</span>;
+    <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>to_timespec</span>;
 
     <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;64&quot;</span>)]</span>
     <span class='kw'>const</span> <span class='ident'>SIZEOF_SEM_T</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>32</span>;
@@ -864,18 +846,6 @@
         <span class='kw'>fn</span> <span class='ident'>sem_timedwait</span>(<span class='ident'>sem</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>, <span class='ident'>timeout</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span>;
         <span class='kw'>fn</span> <span class='ident'>sem_destroy</span>(<span class='ident'>sem</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span>;
     }
-
-    <span class='comment'>// Converts a `Duration` to a `timespec`.</span>
-    <span class='kw'>fn</span> <span class='ident'>to_timespec</span>(<span class='ident'>dur</span>: <span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-        <span class='kw'>let</span> <span class='ident'>sec</span> <span class='op'>=</span> <span class='ident'>dur</span>.<span class='ident'>num_seconds</span>();
-        <span class='comment'>// Safe to unwrap since there can&#39;t be more than one second left.</span>
-        <span class='kw'>let</span> <span class='ident'>nsec</span> <span class='op'>=</span> (<span class='ident'>dur</span> <span class='op'>-</span> <span class='ident'>Duration</span>::<span class='ident'>seconds</span>(<span class='ident'>sec</span>)).<span class='ident'>num_nanoseconds</span>().<span class='ident'>unwrap</span>();
-        <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-            <span class='ident'>tv_sec</span>: <span class='ident'>sec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>time_t</span>,
-            <span class='ident'>tv_nsec</span>: <span class='ident'>nsec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>c_long</span>,
-        }
-    }
-
     <span class='attribute'>#[<span class='ident'>repr</span>(<span class='ident'>C</span>)]</span>
     <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
     <span class='kw'>struct</span> <span class='ident'>sem_t</span> {
@@ -910,10 +880,7 @@
                 <span class='ident'>sem_wait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
@@ -924,11 +891,7 @@
                 <span class='ident'>sem_trywait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    <span class='ident'>libc</span>::<span class='ident'>EWOULDBLOCK</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>WouldBlock</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
@@ -940,11 +903,7 @@
                 <span class='ident'>sem_timedwait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>(), <span class='kw-2'>&amp;</span><span class='ident'>ts</span>)
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    <span class='ident'>libc</span>::<span class='ident'>ETIMEDOUT</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>TimedOut</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
@@ -957,9 +916,11 @@
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
         }
 
-        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
-            <span class='self'>self</span>.<span class='ident'>wait</span>();
-            <span class='ident'>SemaphoreGuard</span> { <span class='ident'>sem</span>: <span class='self'>self</span> }
+        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>SemaphoreGuard</span>, <span class='ident'>Error</span><span class='op'>&gt;</span> {
+            <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>wait</span>());
+            <span class='prelude-val'>Ok</span>(<span class='ident'>SemaphoreGuard</span> { 
+                <span class='ident'>sem</span>: <span class='self'>self</span>,
+            })
         }
     }
 
@@ -975,14 +936,6 @@
         }
     }
 
-    <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>, <span class='ident'>Clone</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Error</span> {
-        <span class='ident'>Interrupted</span>,
-        <span class='ident'>TimedOut</span>,
-        <span class='ident'>WouldBlock</span>,
-        <span class='ident'>Unknown</span>,
-    }
-
     <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>SemaphoreGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
             <span class='self'>self</span>.<span class='ident'>sem</span>.<span class='ident'>post</span>();
@@ -990,11 +943,16 @@
     }
 }
 
+<span class='comment'>// OS X specific semaphores.</span>
+<span class='comment'>//</span>
+<span class='comment'>// OS X does not implement `sem_init()` and process-local semaphores, however it does implement</span>
+<span class='comment'>// process-shared semaphores. We use the latter, with randomly generated names to implement</span>
+<span class='comment'>// pseudo-local semaphores. Semantically they should operate identically.</span>
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>)]</span>
 <span class='kw'>mod</span> <span class='ident'>os</span> {
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ffi</span>::<span class='ident'>CString</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>::<span class='ident'>Error</span>;
 
     <span class='kw'>use</span> <span class='ident'>rand</span>::{
         <span class='ident'>thread_rng</span>,
@@ -1010,8 +968,9 @@
         <span class='ident'>O_EXCL</span>,
         <span class='ident'>S_IRWXU</span>,
     };
+    <span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Duration</span>;
 
-    <span class='kw'>use</span> <span class='ident'>errno</span>::<span class='ident'>errno</span>;
+    <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>to_timespec</span>;
 
     <span class='kw'>const</span> <span class='ident'>SEM_NAME_MAX</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>28</span>; <span class='comment'>// No definitive value for this on OS X. Erring on the side of caution.</span>
     <span class='kw'>const</span> <span class='ident'>SEM_FAILED</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span> <span class='op'>=</span> <span class='number'>0</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>;
@@ -1024,17 +983,6 @@
         <span class='kw'>fn</span> <span class='ident'>sem_timedwait</span>(<span class='ident'>sem</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>, <span class='ident'>timeout</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span>;
         <span class='kw'>fn</span> <span class='ident'>sem_close</span>(<span class='ident'>sem</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>sem_t</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span>;
         <span class='kw'>fn</span> <span class='ident'>sem_unlink</span>(<span class='ident'>sem</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_char</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span>;
-    }
-
-    <span class='comment'>// Converts a `Duration` to a `timespec`.</span>
-    <span class='kw'>fn</span> <span class='ident'>to_timespec</span>(<span class='ident'>dur</span>: <span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-        <span class='kw'>let</span> <span class='ident'>sec</span> <span class='op'>=</span> <span class='ident'>dur</span>.<span class='ident'>num_seconds</span>();
-        <span class='comment'>// Safe to unwrap since there can&#39;t be more than one second left.</span>
-        <span class='kw'>let</span> <span class='ident'>nsec</span> <span class='op'>=</span> (<span class='ident'>dur</span> <span class='op'>-</span> <span class='ident'>Duration</span>::<span class='ident'>seconds</span>(<span class='ident'>sec</span>)).<span class='ident'>num_nanoseconds</span>().<span class='ident'>unwrap</span>();
-        <span class='ident'>libc</span>::<span class='ident'>timespec</span> {
-            <span class='ident'>tv_sec</span>: <span class='ident'>sec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>time_t</span>,
-            <span class='ident'>tv_nsec</span>: <span class='ident'>nsec</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>c_long</span>,
-        }
     }
 
     <span class='attribute'>#[<span class='ident'>repr</span>(<span class='ident'>C</span>)]</span>
@@ -1070,13 +1018,10 @@
 
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Error</span><span class='op'>&gt;</span> {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>sem_wait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
+                <span class='ident'>sem_wait</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
@@ -1084,14 +1029,10 @@
 
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Error</span><span class='op'>&gt;</span> {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>sem_trywait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
+                <span class='ident'>sem_trywait</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>())
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    <span class='ident'>libc</span>::<span class='ident'>EWOULDBLOCK</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>WouldBlock</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
@@ -1100,19 +1041,14 @@
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wait_timeout</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>timeout</span>: <span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Error</span><span class='op'>&gt;</span> {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
                 <span class='kw'>let</span> <span class='ident'>ts</span> <span class='op'>=</span> <span class='ident'>to_timespec</span>(<span class='ident'>timeout</span>);
-                <span class='ident'>sem_timedwait</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>(), <span class='kw-2'>&amp;</span><span class='ident'>ts</span>)
+                <span class='ident'>sem_timedwait</span>(<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>(), <span class='kw-2'>&amp;</span><span class='ident'>ts</span>)
             };
             <span class='kw'>if</span> <span class='ident'>res</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
-                <span class='kw'>match</span> <span class='ident'>errno</span>() {
-                    <span class='ident'>libc</span>::<span class='ident'>EINTR</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Interrupted</span>),
-                    <span class='ident'>libc</span>::<span class='ident'>ETIMEDOUT</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>TimedOut</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Unknown</span>),
-                }
+                <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
             } <span class='kw'>else</span> {
                 <span class='prelude-val'>Ok</span>(())
             }
         }
-
 
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>post</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
             <span class='kw'>let</span> <span class='ident'>res</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
@@ -1121,9 +1057,11 @@
             <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>res</span>, <span class='number'>0</span>);
         }
 
-        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>SemaphoreGuard</span> {
-            <span class='self'>self</span>.<span class='ident'>wait</span>();
-            <span class='ident'>SemaphoreGuard</span> { <span class='ident'>sem</span>: <span class='self'>self</span> }
+        <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>SemaphoreGuard</span>, <span class='ident'>Error</span><span class='op'>&gt;</span> {
+            <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>wait</span>());
+            <span class='prelude-val'>Ok</span>(<span class='ident'>SemaphoreGuard</span> { 
+                <span class='ident'>sem</span>: <span class='self'>self</span>,
+            })
         }
     }
 
